@@ -1,6 +1,7 @@
 // Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+// FLUTTER_NOLINT
 
 #include <algorithm>
 #include <iomanip>
@@ -61,6 +62,7 @@ static const std::string gAllowedDartFlags[] = {
     "--trace-reload",
     "--trace-reload-verbose",
     "--write-service-info",
+    "--null_assertions",
 };
 // clang-format on
 
@@ -227,6 +229,9 @@ Settings SettingsFromCommandLine(const fml::CommandLine& command_line) {
                                                             : "127.0.0.1";
   }
 
+  settings.use_embedded_view =
+      command_line.HasOption(FlagForSwitch(Switch::UseEmbeddedView));
+
   // Set Observatory Port
   if (command_line.HasOption(FlagForSwitch(Switch::DeviceObservatoryPort))) {
     if (!GetSwitchValue(command_line, Switch::DeviceObservatoryPort,
@@ -388,6 +393,9 @@ Settings SettingsFromCommandLine(const fml::CommandLine& command_line) {
 
   settings.cache_sksl =
       command_line.HasOption(FlagForSwitch(Switch::CacheSkSL));
+
+  settings.purge_persistent_cache =
+      command_line.HasOption(FlagForSwitch(Switch::PurgePersistentCache));
 
   return settings;
 }

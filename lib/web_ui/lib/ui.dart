@@ -5,7 +5,7 @@
 /// This library defines the web equivalent of the native dart:ui.
 ///
 /// All types in this library are public.
-// @dart = 2.9
+// @dart = 2.10
 library ui;
 
 import 'dart:async';
@@ -48,7 +48,7 @@ void webOnlyInitializeEngine() {
   engine.initializeEngine();
 }
 
-void webOnlySetPluginHandler(Future<void> Function(String, ByteData, PlatformMessageResponseCallback) handler) {
+void webOnlySetPluginHandler(Future<void> Function(String, ByteData?, PlatformMessageResponseCallback?) handler) {
   engine.pluginMessageCallHandler = handler;
 }
 

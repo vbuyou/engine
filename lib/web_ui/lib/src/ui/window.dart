@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 // Synced 2019-05-30T14:20:57.841444.
 
-// @dart = 2.9
+// @dart = 2.10
 part of ui;
 
 /// Signature of callbacks that have no arguments and return no data.
@@ -375,17 +375,14 @@ class Locale {
   };
 
   @override
-  bool operator ==(dynamic other) {
+  bool operator ==(Object other) {
     if (identical(this, other)) {
       return true;
     }
-    if (other is! Locale) {
-      return false;
-    }
-    final Locale typedOther = other;
-    return languageCode == typedOther.languageCode &&
-        scriptCode == typedOther.scriptCode &&
-        countryCode == typedOther.countryCode;
+    return other is Locale
+        && other.languageCode == languageCode
+        && other.scriptCode == scriptCode
+        && other.countryCode == countryCode;
   }
 
   @override
@@ -603,18 +600,6 @@ abstract class Window {
   ///  * [WidgetsBindingObserver], for a mechanism at the widgets layer to
   ///    observe when this value changes.
   List<Locale>? get locales;
-
-  /// The locale that the platform's native locale resolution system resolves to.
-  ///
-  /// This value may differ between platforms and is meant to allow flutter locale
-  /// resolution algorithms to into resolving consistently with other apps on the
-  /// device.
-  ///
-  /// This value may be used in a custom [localeListResolutionCallback] or used directly
-  /// in order to arrive at the most appropriate locale for the app.
-  ///
-  /// See [locales], which is the list of locales the user/device prefers.
-  Locale? get platformResolvedLocale;
 
   /// Performs the platform-native locale resolution.
   ///
@@ -938,12 +923,12 @@ class AccessibilityFeatures {
   }
 
   @override
-  bool operator ==(dynamic other) {
+  bool operator ==(Object other) {
     if (other.runtimeType != runtimeType) {
       return false;
     }
-    final AccessibilityFeatures typedOther = other;
-    return _index == typedOther._index;
+    return other is AccessibilityFeatures
+        && other._index == _index;
   }
 
   @override
@@ -1020,6 +1005,11 @@ class IsolateNameServer {
 ///
 /// [FrameTiming] records a timestamp of each phase for performance analysis.
 enum FramePhase {
+  /// The timestamp of the vsync signal given by the operating system.
+  ///
+  /// See also [FrameTiming.vsyncOverhead].
+  vsyncStart,
+
   /// When the UI thread starts building a frame.
   ///
   /// See also [FrameTiming.buildDuration].
@@ -1052,14 +1042,33 @@ enum FramePhase {
 class FrameTiming {
   /// Construct [FrameTiming] with raw timestamps in microseconds.
   ///
+  /// This constructor is used for unit test only. Real [FrameTiming]s should
+  /// be retrieved from [Window.onReportTimings].
+  factory FrameTiming({
+    required int vsyncStart,
+    required int buildStart,
+    required int buildFinish,
+    required int rasterStart,
+    required int rasterFinish,
+  }) {
+    return FrameTiming._(<int>[
+      vsyncStart,
+      buildStart,
+      buildFinish,
+      rasterStart,
+      rasterFinish
+    ]);
+  }
+
+  /// Construct [FrameTiming] with raw timestamps in microseconds.
+  ///
   /// List [timestamps] must have the same number of elements as
   /// [FramePhase.values].
   ///
   /// This constructor is usually only called by the Flutter engine, or a test.
   /// To get the [FrameTiming] of your app, see [Window.onReportTimings].
-  FrameTiming(List<int> timestamps)
-      : assert(timestamps.length == FramePhase.values.length),
-        _timestamps = timestamps;
+  FrameTiming._(List<int> timestamps)
+      : assert(timestamps.length == FramePhase.values.length), _timestamps = timestamps;
 
   /// This is a raw timestamp in microseconds from some epoch. The epoch in all
   /// [FrameTiming] is the same, but it may not match [DateTime]'s epoch.
@@ -1095,16 +1104,20 @@ class FrameTiming {
       _rawDuration(FramePhase.rasterFinish) -
       _rawDuration(FramePhase.rasterStart);
 
-  /// The timespan between build start and raster finish.
+  /// The duration between receiving the vsync signal and starting building the
+  /// frame.
+  Duration get vsyncOverhead => _rawDuration(FramePhase.buildStart) - _rawDuration(FramePhase.vsyncStart);
+
+  /// The timespan between vsync start and raster finish.
   ///
   /// To achieve the lowest latency on an X fps display, this should not exceed
   /// 1000/X milliseconds.
   /// {@macro dart.ui.FrameTiming.fps_milliseconds}
   ///
-  /// See also [buildDuration] and [rasterDuration].
+  /// See also [vsyncOverhead], [buildDuration] and [rasterDuration].
   Duration get totalSpan =>
       _rawDuration(FramePhase.rasterFinish) -
-      _rawDuration(FramePhase.buildStart);
+      _rawDuration(FramePhase.vsyncStart);
 
   final List<int> _timestamps; // in microseconds
 
@@ -1112,7 +1125,7 @@ class FrameTiming {
 
   @override
   String toString() {
-    return '$runtimeType(buildDuration: ${_formatMS(buildDuration)}, rasterDuration: ${_formatMS(rasterDuration)}, totalSpan: ${_formatMS(totalSpan)})';
+    return '$runtimeType(buildDuration: ${_formatMS(buildDuration)}, rasterDuration: ${_formatMS(rasterDuration)}, vsyncOverhead: ${_formatMS(vsyncOverhead)}, totalSpan: ${_formatMS(totalSpan)})';
   }
 }
 

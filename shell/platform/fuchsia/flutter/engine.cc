@@ -6,8 +6,10 @@
 
 #include <lib/async/cpp/task.h>
 #include <zircon/status.h>
+
 #include <sstream>
 
+#include "compositor_context.h"
 #include "flutter/common/task_runners.h"
 #include "flutter/fml/make_copyable.h"
 #include "flutter/fml/synchronization/waitable_event.h"
@@ -80,7 +82,9 @@ Engine::Engine(Delegate& delegate,
   fidl::InterfaceHandle<fuchsia::ui::scenic::Session> session;
   fidl::InterfaceHandle<fuchsia::ui::scenic::SessionListener> session_listener;
   auto session_listener_request = session_listener.NewRequest();
-  scenic->CreateSession(session.NewRequest(), session_listener.Bind());
+  fidl::InterfaceHandle<fuchsia::ui::views::Focuser> focuser;
+  scenic->CreateSession2(session.NewRequest(), session_listener.Bind(),
+                         focuser.NewRequest());
 
   // Grab the parent environment services. The platform view may want to access
   // some of these services.
@@ -101,6 +105,19 @@ Engine::Engine(Delegate& delegate,
 
   OnEnableWireframe on_enable_wireframe_callback = std::bind(
       &Engine::OnDebugWireframeSettingsChanged, this, std::placeholders::_1);
+
+  flutter_runner::OnCreateView on_create_view_callback =
+      std::bind(&Engine::OnCreateView, this, std::placeholders::_1,
+                std::placeholders::_2, std::placeholders::_3);
+
+  flutter_runner::OnDestroyView on_destroy_view_callback =
+      std::bind(&Engine::OnDestroyView, this, std::placeholders::_1);
+
+  OnGetViewEmbedder on_get_view_embedder_callback =
+      std::bind(&Engine::GetViewEmbedder, this);
+
+  OnGetGrContext on_get_gr_context_callback =
+      std::bind(&Engine::GetGrContext, this);
 
   // SessionListener has a OnScenicError method; invoke this callback on the
   // platform thread when that happens. The Session itself should also be
@@ -127,6 +144,7 @@ Engine::Engine(Delegate& delegate,
            parent_environment_service_provider =
                std::move(parent_environment_service_provider),
            session_listener_request = std::move(session_listener_request),
+           focuser = std::move(focuser),
            on_session_listener_error_callback =
                std::move(on_session_listener_error_callback),
            on_session_metrics_change_callback =
@@ -135,6 +153,11 @@ Engine::Engine(Delegate& delegate,
                std::move(on_session_size_change_hint_callback),
            on_enable_wireframe_callback =
                std::move(on_enable_wireframe_callback),
+           on_create_view_callback = std::move(on_create_view_callback),
+           on_destroy_view_callback = std::move(on_destroy_view_callback),
+           on_get_view_embedder_callback =
+               std::move(on_get_view_embedder_callback),
+           on_get_gr_context_callback = std::move(on_get_gr_context_callback),
            vsync_handle = vsync_event_.get(),
            product_config = product_config](flutter::Shell& shell) mutable {
             return std::make_unique<flutter_runner::PlatformView>(
@@ -145,10 +168,15 @@ Engine::Engine(Delegate& delegate,
                 std::move(runner_services),
                 std::move(parent_environment_service_provider),  // services
                 std::move(session_listener_request),  // session listener
+                std::move(focuser),
                 std::move(on_session_listener_error_callback),
                 std::move(on_session_metrics_change_callback),
                 std::move(on_session_size_change_hint_callback),
                 std::move(on_enable_wireframe_callback),
+                std::move(on_create_view_callback),
+                std::move(on_destroy_view_callback),
+                std::move(on_get_view_embedder_callback),
+                std::move(on_get_gr_context_callback),
                 vsync_handle,  // vsync handle
                 product_config);
           });
@@ -238,7 +266,7 @@ Engine::Engine(Delegate& delegate,
     TRACE_EVENT0("flutter", "CreateShell");
     shell_ = flutter::Shell::Create(
         task_runners,                 // host task runners
-        flutter::WindowData(),        // default window data
+        flutter::PlatformData(),      // default window data
         settings_,                    // shell launch settings
         std::move(isolate_snapshot),  // isolate snapshot
         on_create_platform_view,      // platform view create callback
@@ -501,6 +529,53 @@ void Engine::OnDebugWireframeSettingsChanged(bool enabled) {
       });
 }
 
+void Engine::OnCreateView(int64_t view_id, bool hit_testable, bool focusable) {
+  if (!shell_) {
+    return;
+  }
+
+  shell_->GetTaskRunners().GetRasterTaskRunner()->PostTask(
+      [rasterizer = shell_->GetRasterizer(), view_id, hit_testable,
+       focusable]() {
+        if (rasterizer) {
+          auto compositor_context =
+              reinterpret_cast<flutter_runner::CompositorContext*>(
+                  rasterizer->compositor_context());
+          compositor_context->OnCreateView(view_id, hit_testable, focusable);
+        }
+      });
+}
+
+void Engine::OnDestroyView(int64_t view_id) {
+  if (!shell_) {
+    return;
+  }
+
+  shell_->GetTaskRunners().GetRasterTaskRunner()->PostTask(
+      [rasterizer = shell_->GetRasterizer(), view_id]() {
+        if (rasterizer) {
+          auto compositor_context =
+              reinterpret_cast<flutter_runner::CompositorContext*>(
+                  rasterizer->compositor_context());
+          compositor_context->OnDestroyView(view_id);
+        }
+      });
+}
+
+flutter::ExternalViewEmbedder* Engine::GetViewEmbedder() {
+  // GetEmbedder should be called only after rasterizer is created.
+  FML_DCHECK(shell_);
+  FML_DCHECK(shell_->GetRasterizer());
+
+  auto rasterizer = shell_->GetRasterizer();
+  auto compositor_context =
+      reinterpret_cast<flutter_runner::CompositorContext*>(
+          rasterizer->compositor_context());
+  flutter::ExternalViewEmbedder* view_embedder =
+      compositor_context->GetViewEmbedder();
+  return view_embedder;
+}
+
 void Engine::OnSessionSizeChangeHint(float width_change_factor,
                                      float height_change_factor) {
   if (!shell_) {
@@ -518,6 +593,19 @@ void Engine::OnSessionSizeChangeHint(float width_change_factor,
                                                       height_change_factor);
         }
       });
+}
+
+GrDirectContext* Engine::GetGrContext() {
+  // GetGrContext should be called only after rasterizer is created.
+  FML_DCHECK(shell_);
+  FML_DCHECK(shell_->GetRasterizer());
+
+  auto rasterizer = shell_->GetRasterizer();
+  auto compositor_context =
+      reinterpret_cast<flutter_runner::CompositorContext*>(
+          rasterizer->compositor_context());
+  GrDirectContext* gr_context = compositor_context->GetGrContext();
+  return gr_context;
 }
 
 #if !defined(DART_PRODUCT)

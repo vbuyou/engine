@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.9
+// @dart = 2.10
 part of ui;
 
 /// A complex, one-dimensional subset of a plane.
@@ -26,7 +26,7 @@ abstract class Path {
   /// Create a new empty [Path] object.
   factory Path() {
     if (engine.experimentalUseSkia) {
-      return engine.SkPath();
+      return engine.CkPath();
     } else {
       return engine.SurfacePath();
     }
@@ -38,7 +38,7 @@ abstract class Path {
   /// the `source` path or the path returned by this constructor are modified.
   factory Path.from(Path source) {
     if (engine.experimentalUseSkia) {
-      return engine.SkPath.from(source as engine.SkPath);
+      return engine.CkPath.from(source as engine.CkPath);
     } else {
       return engine.SurfacePath.from(source as engine.SurfacePath);
     }
@@ -272,7 +272,7 @@ abstract class Path {
     assert(path1 != null); // ignore: unnecessary_null_comparison
     assert(path2 != null); // ignore: unnecessary_null_comparison
     if (engine.experimentalUseSkia) {
-      return engine.SkPath.combine(operation, path1, path2);
+      return engine.CkPath.combine(operation, path1, path2);
     }
     throw UnimplementedError();
   }
